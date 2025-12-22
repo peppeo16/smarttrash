@@ -4,7 +4,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Literal
-from .model_loader import predict_mock  # poi useremo il modello vero
+from model_loader import predict
 
 # Istanza principale dell'app
 app = FastAPI(title="SmartTrash AI Backend")
@@ -47,6 +47,5 @@ async def predict(file: UploadFile = File(...)):
     img_bytes = await file.read()
 
     # Chiamo la funzione mock (poi qui useremo il modello vero)
-    result = predict_mock(img_bytes)
-
+    result = predict(img_bytes)
     return result

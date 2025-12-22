@@ -144,3 +144,12 @@ def predict_real(img_bytes: bytes) -> Dict:
     """
     # Per ora, continuiamo a usare il mock, così l'API funziona.
     return predict_mock(img_bytes)
+
+def predict(img_bytes: bytes) -> Dict:
+    """
+    Funzione unica usata dal backend.
+    Oggi: usa il mock.
+    Domani: switcha su predict_real senza toccare main.py.
+    """
+    return predict_mock(img_bytes)   # adesso
+    # return predict_real(img_bytes) # quando il modello è pronto
