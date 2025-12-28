@@ -1,61 +1,48 @@
-# backend/app/model_loader.py
+from __future__ import annotations
 
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Optional
+import os
 import random
 
-# 🔹 In futuro useremo anche queste librerie per il modello vero:
-# import numpy as np
-# from PIL import Image
-# from io import BytesIO
-# import tensorflow as tf
-# from pathlib import Path
+# Classi finali del progetto (5 bidoni)
+POSSIBLE_BINS = ("PLASTICA", "CARTA", "VETRO", "UMIDO", "INDIFFERENZIATO")
 
-# Classi finali del progetto (i 5 bidoni)
-POSSIBLE_BINS = ["PLASTICA", "CARTA", "VETRO", "UMIDO", "INDIFFERENZIATO"]
+# Cache del modello (lazy-load)
+_model: Optional[object] = None
 
-# Qui in futuro salveremo il modello caricato
-_model = None
+# Percorso modello (default) + override via env
+# Esempio: export SMARTTRASH_MODEL_PATH="/path/al/modello.h5"
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[2] / "model" / "saved_model.h5"
+MODEL_PATH = Path(os.getenv("SMARTTRASH_MODEL_PATH", str(DEFAULT_MODEL_PATH)))
 
 
-def get_model():
+def get_model() -> Optional[object]:
     """
-    Restituisce il modello di classificazione.
-
-    Adesso:
-      - il modello reale non esiste ancora
-      - quindi usiamo un placeholder (MOCK_MODEL)
-
-    In futuro:
-      - caricheremo il modello da backend/model/saved_model
-      - lo salveremo in _model
-      - lo riuseremo per le richieste successive
+    Carica e ritorna il modello (lazy).
+    Se non disponibile, ritorna None (il backend userà il mock).
     """
     global _model
+    if _model is not None:
+        return _model
 
-    if _model is None:
-        # TODO (futuro):
-        #   1) calcolare il path della cartella saved_model:
-        #      model_path = Path(__file__).resolve().parent.parent / "model" / "saved_model"
-        #   2) caricare il modello con:
-        #      _model = tf.keras.models.load_model(model_path)
-        print("⚠️ get_model() sta usando un MODELLO MOCK.")
-        _model = "MOCK_MODEL"
+    if not MODEL_PATH.exists():
+        return None
 
-    return _model
+    # TODO: scegliete UNO tra TensorFlow o PyTorch, non entrambi.
+    # Qui assumo .h5 / Keras
+    try:
+        from tensorflow import keras  # import pesante: solo se serve
+        _model = keras.models.load_model(str(MODEL_PATH))
+        return _model
+    except Exception:
+        # Se il load fallisce, evitiamo di rompere il backend
+        return None
 
 
-def predict_mock(img_bytes: bytes) -> Dict:
-    """
-    Versione MOCK della predizione.
-    Ignora l'immagine e restituisce un bidone a caso.
-
-    Serve per:
-      - sviluppare il backend
-      - testare l'integrazione col frontend
-      - mostrare il flusso end-to-end anche senza il modello AI reale
-    """
+def predict_mock(_: bytes) -> Dict:
+    """Fallback: ritorna una classe casuale + confidence fissa (solo demo)."""
     bin_choice = random.choice(POSSIBLE_BINS)
-
     material_map = {
         "PLASTICA": "plastica",
         "CARTA": "carta",
@@ -63,93 +50,45 @@ def predict_mock(img_bytes: bytes) -> Dict:
         "UMIDO": "umido",
         "INDIFFERENZIATO": "indifferenziato",
     }
+    return {"material": material_map[bin_choice], "bin": bin_choice, "confidence": 0.80}
 
-    return {
-        "material": material_map[bin_choice],
-        "bin": bin_choice,
-        "confidence": 0.80,  # valore fisso, perché è solo un mock
-    }
-
-
-def predict_real(img_bytes: bytes) -> Dict:
-    """
-    Versione FUTURA della predizione.
-
-    Obiettivo finale:
-      usare il modello addestrato da Nicole per classificare davvero l'immagine.
-
-    Passi che implementeremo quando il modello sarà pronto:
-
-      1. Caricare (o recuperare) il modello:
-         model = get_model()
-
-      2. Convertire i byte in immagine:
-         # img = Image.open(BytesIO(img_bytes)).convert("RGB")
-
-      3. Ridimensionare l'immagine alla dimensione di input del modello
-         (es. 224x224 — questo ce lo dirà Nicole):
-         # img = img.resize((224, 224))
-
-      4. Convertire in array numpy e normalizzare:
-         # img_array = np.array(img) / 255.0
-         # img_array = np.expand_dims(img_array, axis=0)  # shape: (1, H, W, 3)
-
-      5. Fare la predizione:
-         # preds = model.predict(img_array)[0]   # vettore di probabilità
-
-      6. Trovare la classe con confidenza massima:
-         # class_id = int(np.argmax(preds))
-         # confidence = float(preds[class_id])
-
-      7. Mappare class_id su uno dei 5 bidoni:
-         # class_to_bin = {
-         #     0: "PLASTICA",
-         #     1: "CARTA",
-         #     2: "VETRO",
-         #     3: "UMIDO",
-         #     4: "INDIFFERENZIATO",
-         # }
-         # bin_choice = class_to_bin[class_id]
-
-      8. Costruire la risposta finale:
-         # material_map = {
-         #     "PLASTICA": "plastica",
-         #     "CARTA": "carta",
-         #     "VETRO": "vetro",
-         #     "UMIDO": "umido",
-         #     "INDIFFERENZIATO": "indifferenziato",
-         # }
-         #
-         # return {
-         #     "material": material_map[bin_choice],
-         #     "bin": bin_choice,
-         #     "confidence": confidence,
-         # }
-
-    NOTA:
-      Adesso NON abbiamo ancora:
-        - il modello addestrato
-        - le librerie installate (tensorflow, numpy, pillow)
-        - l'ordine definitivo delle classi
-
-      Quindi, per non rompere il backend, per ora questa funzione
-      usa semplicemente il MOCK.
-
-      Quando Nicole ci darà:
-        - il modello salvato,
-        - input size,
-        - normalizzazione,
-        - ordine delle classi,
-      potremo togliere il mock e implementare davvero i passaggi sopra.
-    """
-    # Per ora, continuiamo a usare il mock, così l'API funziona.
-    return predict_mock(img_bytes)
 
 def predict(img_bytes: bytes) -> Dict:
     """
-    Funzione unica usata dal backend.
-    Oggi: usa il mock.
-    Domani: switcha su predict_real senza toccare main.py.
+    Entry point usata dal backend.
+    Se il modello non c'è -> mock.
     """
-    return predict_mock(img_bytes)   # adesso
-    # return predict_real(img_bytes) # quando il modello è pronto
+    model = get_model()
+    if model is None:
+        return predict_mock(img_bytes)
+
+    # Qui sotto: implementazione reale MINIMA (da adattare al vostro training)
+    # Assunzioni:
+    # - input immagine 224x224 RGB
+    # - output: probabilità per 5 classi in ordine POSSIBLE_BINS
+    try:
+        from PIL import Image
+        import numpy as np
+
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        img = img.resize((224, 224))
+        x = np.array(img, dtype=np.float32) / 255.0
+        x = np.expand_dims(x, axis=0)
+
+        preds = model.predict(x)[0]  # shape (5,)
+        class_id = int(np.argmax(preds))
+        confidence = float(preds[class_id])
+
+        bin_choice = POSSIBLE_BINS[class_id]
+        material_map = {
+            "PLASTICA": "plastica",
+            "CARTA": "carta",
+            "VETRO": "vetro",
+            "UMIDO": "umido",
+            "INDIFFERENZIATO": "indifferenziato",
+        }
+        return {"material": material_map[bin_choice], "bin": bin_choice, "confidence": confidence}
+
+    except Exception:
+        # Se qualcosa va storto, NON crashiamo tutto: fallback mock
+        return predict_mock(img_bytes)
