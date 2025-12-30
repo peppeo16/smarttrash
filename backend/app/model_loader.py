@@ -1,155 +1,162 @@
-# backend/app/model_loader.py
+import io
+import numpy as np
+import tensorflow as tf
+from PIL import Image, ImageOps
+import os
+import logging
+# IMPORTANTE: Usiamo la funzione ufficiale di MobileNetV2 per la normalizzazione
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
-from typing import Dict
-import random
+# ==========================================
+# 1. CONFIGURAZIONE LOGGING
+# ==========================================
+logging.basicConfig(
+    filename='debug_log.txt', 
+    level=logging.INFO, 
+    format='%(asctime)s - %(message)s',
+    datefmt='%H:%M:%S',
+    force=True
+)
 
-# 🔹 In futuro useremo anche queste librerie per il modello vero:
-# import numpy as np
-# from PIL import Image
-# from io import BytesIO
-# import tensorflow as tf
-# from pathlib import Path
+# ==========================================
+# 2. CONFIGURAZIONE MODELLO
+# ==========================================
+IMG_SIZE = (224, 224)
+MODEL_PATH = "app/models/best_model.h5"
 
-# Classi finali del progetto (i 5 bidoni)
-POSSIBLE_BINS = ["PLASTICA", "CARTA", "VETRO", "UMIDO", "INDIFFERENZIATO"]
+# ORDINE DELLE CLASSI (Alfabetico)
+CLASS_NAMES = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
 
-# Qui in futuro salveremo il modello caricato
+# Mappatura semplice
+LABEL_MAP = {
+    'cardboard': 'CARTA',
+    'paper':     'CARTA',
+    'glass':     'VETRO',
+    'plastic':   'PLASTICA',
+    'metal':     'PLASTICA',
+    'trash':     'INDIFFERENZIATO'
+}
+
+# Mappatura dettagliata per il Frontend
+INFO_MAP = {
+    'cardboard': {
+        "bin": "CARTA", 
+        "it": "Cartone", 
+        "color": "#3498db", 
+        "tip": "Appiattisci le scatole per risparmiare spazio."
+    },
+    'paper': {
+        "bin": "CARTA", 
+        "it": "Carta", 
+        "color": "#3498db", 
+        "tip": "Assicurati che sia pulita e senza cibo."
+    },
+    'glass': {
+        "bin": "VETRO", 
+        "it": "Vetro", 
+        "color": "#2ecc71", 
+        "tip": "Rimuovi il tappo (va nella plastica o metallo)."
+    },
+    'plastic': {
+        "bin": "PLASTICA", 
+        "it": "Plastica", 
+        "color": "#f1c40f", 
+        "tip": "Schiaccia la bottiglia per il lato lungo."
+    },
+    'metal': {
+        "bin": "PLASTICA/METALLO", 
+        "it": "Metallo", 
+        "color": "#f1c40f", 
+        "tip": "Sciacqua le lattine prima di buttarle."
+    },
+    'trash': {
+        "bin": "INDIFFERENZIATO", 
+        "it": "Non Riciclabile", 
+        "color": "#7f8c8d", 
+        "tip": "Se hai dubbi, meglio nell'indifferenziato che sbagliare."
+    }
+}
+
 _model = None
 
-
-def get_model():
-    """
-    Restituisce il modello di classificazione.
-
-    Adesso:
-      - il modello reale non esiste ancora
-      - quindi usiamo un placeholder (MOCK_MODEL)
-
-    In futuro:
-      - caricheremo il modello da backend/model/saved_model
-      - lo salveremo in _model
-      - lo riuseremo per le richieste successive
-    """
+def load_model():
     global _model
+    logging.info(f"🔄 Tentativo caricamento modello da: {MODEL_PATH}")
+    
+    if os.path.exists(MODEL_PATH):
+        try:
+            # compile=False velocizza il caricamento
+            _model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+            logging.info("✅ MODELLO MOBILENET V2 CARICATO CON SUCCESSO!")
+        except Exception as e:
+            logging.error(f"❌ CRASH caricamento modello: {str(e)}")
+    else:
+        logging.error(f"❌ ERRORE: File {MODEL_PATH} non trovato.")
 
-    if _model is None:
-        # TODO (futuro):
-        #   1) calcolare il path della cartella saved_model:
-        #      model_path = Path(__file__).resolve().parent.parent / "model" / "saved_model"
-        #   2) caricare il modello con:
-        #      _model = tf.keras.models.load_model(model_path)
-        print("⚠️ get_model() sta usando un MODELLO MOCK.")
-        _model = "MOCK_MODEL"
+def predict(image_bytes: bytes) -> dict:
+    global _model
+    
+    logging.info("\n--- 📸 NUOVA RICHIESTA ANALISI ---")
+    
+    if _model is None: 
+        return {"error": "Modello non caricato. Controlla i log."}
 
-    return _model
+    try:
+        # 1. Apertura Immagine
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # 2. Correzione Orientamento (Exif)
+        img = ImageOps.exif_transpose(img)
+        
+        # 3. Conversione RGB
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        
+        # 4. Resize
+        img = img.resize(IMG_SIZE)
+        
+        # 5. Pre-processing MobileNetV2
+        img_array = np.array(img)
+        img_processed = preprocess_input(img_array)
+        img_batch = np.expand_dims(img_processed, axis=0)
 
+        # 6. Predizione
+        predictions = _model.predict(img_batch)
+        probs = predictions[0]
 
-def predict_mock(img_bytes: bytes) -> Dict:
-    """
-    Versione MOCK della predizione.
-    Ignora l'immagine e restituisce un bidone a caso.
+        # 7. Log Risultati
+        logging.info("📊 Risultati Analisi:")
+        for i, class_name in enumerate(CLASS_NAMES):
+            perc = probs[i] * 100
+            marker = " << VINCENTE" if perc == max(probs*100) else ""
+            logging.info(f"   • {class_name.upper().ljust(10)}: {perc:.2f}% {marker}")
+        
+        # 8. Risultato Finale
+        predicted_index = np.argmax(probs)
+        confidence = float(probs[predicted_index])
+        raw_label = CLASS_NAMES[predicted_index]
 
-    Serve per:
-      - sviluppare il backend
-      - testare l'integrazione col frontend
-      - mostrare il flusso end-to-end anche senza il modello AI reale
-    """
-    bin_choice = random.choice(POSSIBLE_BINS)
+        info = INFO_MAP.get(raw_label)
+        
+        # Costruzione Risposta
+        if info:
+            return {
+                "material": info["it"],
+                "bin": info["bin"],
+                "tip": info["tip"],
+                "color": info["color"],
+                "confidence": round(confidence, 2)
+            }
+        else:
+            return {
+                "material": raw_label,
+                "bin": "INDIFFERENZIATO",
+                "tip": "Nessun consiglio disponibile",
+                "color": "#999999",
+                "confidence": round(confidence, 2)
+            }
 
-    material_map = {
-        "PLASTICA": "plastica",
-        "CARTA": "carta",
-        "VETRO": "vetro",
-        "UMIDO": "umido",
-        "INDIFFERENZIATO": "indifferenziato",
-    }
-
-    return {
-        "material": material_map[bin_choice],
-        "bin": bin_choice,
-        "confidence": 0.80,  # valore fisso, perché è solo un mock
-    }
-
-
-def predict_real(img_bytes: bytes) -> Dict:
-    """
-    Versione FUTURA della predizione.
-
-    Obiettivo finale:
-      usare il modello addestrato da Nicole per classificare davvero l'immagine.
-
-    Passi che implementeremo quando il modello sarà pronto:
-
-      1. Caricare (o recuperare) il modello:
-         model = get_model()
-
-      2. Convertire i byte in immagine:
-         # img = Image.open(BytesIO(img_bytes)).convert("RGB")
-
-      3. Ridimensionare l'immagine alla dimensione di input del modello
-         (es. 224x224 — questo ce lo dirà Nicole):
-         # img = img.resize((224, 224))
-
-      4. Convertire in array numpy e normalizzare:
-         # img_array = np.array(img) / 255.0
-         # img_array = np.expand_dims(img_array, axis=0)  # shape: (1, H, W, 3)
-
-      5. Fare la predizione:
-         # preds = model.predict(img_array)[0]   # vettore di probabilità
-
-      6. Trovare la classe con confidenza massima:
-         # class_id = int(np.argmax(preds))
-         # confidence = float(preds[class_id])
-
-      7. Mappare class_id su uno dei 5 bidoni:
-         # class_to_bin = {
-         #     0: "PLASTICA",
-         #     1: "CARTA",
-         #     2: "VETRO",
-         #     3: "UMIDO",
-         #     4: "INDIFFERENZIATO",
-         # }
-         # bin_choice = class_to_bin[class_id]
-
-      8. Costruire la risposta finale:
-         # material_map = {
-         #     "PLASTICA": "plastica",
-         #     "CARTA": "carta",
-         #     "VETRO": "vetro",
-         #     "UMIDO": "umido",
-         #     "INDIFFERENZIATO": "indifferenziato",
-         # }
-         #
-         # return {
-         #     "material": material_map[bin_choice],
-         #     "bin": bin_choice,
-         #     "confidence": confidence,
-         # }
-
-    NOTA:
-      Adesso NON abbiamo ancora:
-        - il modello addestrato
-        - le librerie installate (tensorflow, numpy, pillow)
-        - l'ordine definitivo delle classi
-
-      Quindi, per non rompere il backend, per ora questa funzione
-      usa semplicemente il MOCK.
-
-      Quando Nicole ci darà:
-        - il modello salvato,
-        - input size,
-        - normalizzazione,
-        - ordine delle classi,
-      potremo togliere il mock e implementare davvero i passaggi sopra.
-    """
-    # Per ora, continuiamo a usare il mock, così l'API funziona.
-    return predict_mock(img_bytes)
-
-def predict(img_bytes: bytes) -> Dict:
-    """
-    Funzione unica usata dal backend.
-    Oggi: usa il mock.
-    Domani: switcha su predict_real senza toccare main.py.
-    """
-    return predict_mock(img_bytes)   # adesso
-    # return predict_real(img_bytes) # quando il modello è pronto
+    except Exception as e:
+        logging.error(f"❌ Errore durante la predizione: {str(e)}")
+        # Importante: restituiamo un dizionario con l'errore, NON None
+        return {"error": str(e)}
