@@ -29,7 +29,7 @@ function App() {
     formData.append("file", selectedFile);
 
     try {
-      const response = await fetch("http://192.168.1.106:8000/predict", {
+      const response = await fetch("http://backend:8000/predict", {
         method: "POST",
         body: formData,
       });
