@@ -29,7 +29,7 @@ function App() {
     formData.append("file", selectedFile);
 
     try {
-      const response = await fetch("http://backend:8000/predict", {
+      const response = await fetch("https://smarttrash-ai.onrender.com/predict", {
         method: "POST",
         body: formData,
       });
