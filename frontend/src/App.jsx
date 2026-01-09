@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, Upload, RefreshCw, CheckCircle, AlertTriangle, HelpCircle } from 'lucide-react'
+import { Camera, Upload, RefreshCw, CheckCircle, AlertTriangle, HelpCircle, XCircle } from 'lucide-react' // <--- 1. AGGIUNTO XCircle
 import './App.css'
 
 function App() {
@@ -29,34 +29,53 @@ function App() {
     formData.append("file", selectedFile);
 
     try {
+      // Assicurati che l'URL sia corretto (se sei in locale usa localhost)
       const response = await fetch("https://smarttrash-ai.onrender.com/predict", {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) throw new Error("Errore server");
+      // Se il server è esploso (500) o non trovato (404)
+      if (!response.ok) throw new Error("Errore di connessione col server");
 
       const data = await response.json();
       console.log("Dati Backend:", data);
 
-      // --- LOGICA DI SICUREZZA ---
-      // Se la confidenza è bassa (< 0.60), attiviamo la modalità "Incerto"
-      const confidenceValue = data.confidence; // Es. 0.35
+      // --- 2. LOGICA DI GESTIONE ERRORE ---
+      // Se il Python ci ha mandato un errore (es. formato sbagliato)
+      if (data.error) {
+          setResult({
+              isError: true, // Flag speciale per dire "è un errore, non una predizione"
+              label: data.material, // "Formato Errato"
+              tip: data.tip,        // "Ricarica la pagina..."
+              color: "#ef4444"      // Rosso
+          });
+          return; // Usciamo dalla funzione, non calcoliamo confidenza
+      }
+
+      // --- LOGICA DI SICUREZZA (Solo se non ci sono errori) ---
+      const confidenceValue = data.confidence; 
       const isLowConfidence = confidenceValue < 0.60;
 
       setResult({
+        isError: false,
         label: data.material,
         confidence: (confidenceValue * 100).toFixed(1) + "%",
         bin: data.bin,
         color: data.color,
         tip: data.tip,
-        // Nuovi campi per gestire l'incertezza
         isLowConfidence: isLowConfidence 
       });
 
     } catch (error) {
       console.error(error);
-      alert("Errore di connessione col server.");
+      // Fallback per errori di rete veri (internet staccato, server spento)
+      setResult({
+          isError: true,
+          label: "Errore Tecnico",
+          tip: "Impossibile contattare il server. Controlla la connessione.",
+          color: "#ef4444"
+      });
     } finally {
       setLoading(false);
     }
@@ -115,42 +134,47 @@ function App() {
 
         {/* SEZIONE 2: RISULTATO */}
         {result && (
-          // Se la confidenza è BASSA, mostriamo lo stile "Warning" (Arancione)
-          // Altrimenti mostriamo lo stile normale (Colore del bidone)
           <div className="result-card" style={{ 
-            borderColor: result.isLowConfidence ? '#e67e22' : result.color 
+            borderColor: result.color 
           }}>
             
-            <div className="result-header" style={{ 
-              backgroundColor: result.isLowConfidence ? '#e67e22' : result.color 
-            }}>
-              {result.isLowConfidence ? (
+            <div className="result-header" style={{ backgroundColor: result.color }}>
+              {/* 3. LOGICA ICONE: Errore -> Incerto -> Sicuro */}
+              {result.isError ? (
+                 <XCircle size={32} color="white" />
+              ) : result.isLowConfidence ? (
                 <HelpCircle size={32} color="white" />
               ) : (
                 <CheckCircle size={32} color="white" />
               )}
               
-              <h2>
-                {result.isLowConfidence ? "Non sono sicuro..." : result.label}
-              </h2>
+              <h2>{result.label}</h2>
             </div>
             
             <div className="result-body">
-              {result.isLowConfidence ? (
-                // --- MESSAGGIO DI ERRORE SE BASSA CONFIDENZA ---
+              
+              {/* CASO A: ERRORE (File sbagliato o crash) */}
+              {result.isError ? (
+                  <div className="error-box">
+                      <p style={{fontSize: '1.1rem', fontWeight: 'bold'}}>{result.tip}</p>
+                      <br/>
+                      <small>Prova a caricare un file .jpg o .png</small>
+                  </div>
+
+              /* CASO B: BASSA CONFIDENZA */
+              ) : result.isLowConfidence ? (
                 <div className="low-confidence-msg">
                   <p>Ho trovato <strong>{result.label}</strong>, ma la sicurezza è solo del <strong>{result.confidence}</strong>.</p>
                   <hr />
                   <p>⚠️ <strong>Consigli per una foto migliore:</strong></p>
                   <ul style={{textAlign: 'left', margin: '10px 0'}}>
                     <li>Avvicinati all'oggetto</li>
-                    <li>Usa uno sfondo neutro (muro bianco o tavolo pulito)</li>
-                    <li>Evita ombre forti o riflessi</li>
+                    <li>Usa uno sfondo neutro</li>
                   </ul>
-                  <p>Nel dubbio, controlla l'etichetta!</p>
                 </div>
+
+              /* CASO C: RISULTATO NORMALE */
               ) : (
-                // --- RISULTATO NORMALE ---
                 <>
                   <p className="confidence">Sicurezza IA: <strong>{result.confidence}</strong></p>
                   
@@ -167,7 +191,7 @@ function App() {
               )}
 
               <button className="btn btn-secondary" onClick={resetApp}>
-                <RefreshCw size={18} /> {result.isLowConfidence ? "Riprova Foto" : "Analizza un altro"}
+                <RefreshCw size={18} /> {result.isError ? "Riprova" : "Analizza un altro"}
               </button>
             </div>
           </div>
