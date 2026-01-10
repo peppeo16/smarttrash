@@ -28,6 +28,15 @@ class PredictResponse(BaseModel):
 def startup_event():
     load_model()
 
+# ==========================================
+# ☕ KEEP-ALIVE ENDPOINT (AGGIUNTO QUI)
+# ==========================================
+# Questo serve a UptimeRobot per tenere sveglio il server
+@app.get("/")
+def health_check():
+    return {"status": "active", "message": "SmartTrash AI è sveglio!"}
+# ==========================================
+
 @app.post("/predict") 
 async def predict_endpoint(file: UploadFile = File(...)):
     
