@@ -1,4 +1,5 @@
 import sys
+import time # <--- 1. AGGIUNTO IMPORT TIME
 from fastapi.responses import JSONResponse 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,8 @@ def startup_event():
 @app.post("/predict") 
 async def predict_endpoint(file: UploadFile = File(...)):
     
+    # ⏱️ START CRONOMETRO TOTALE
+    start_time = time.time()
     print(f"\n➡️ RICHIESTA RICEVUTA! File: {file.filename}", file=sys.stderr, flush=True)
 
     # ==========================================
@@ -38,7 +41,18 @@ async def predict_endpoint(file: UploadFile = File(...)):
     # Dobbiamo consumare lo stream di dati, altrimenti il browser
     # interpreterà il rifiuto immediato come un crash di rete.
     try:
+        # ⏱️ MISURAZIONE UPLOAD
+        t0 = time.time()
+        
         img_bytes = await file.read()
+        
+        t1 = time.time()
+        upload_time = t1 - t0
+        size_mb = len(img_bytes) / (1024 * 1024)
+        
+        # STAMPA TEMPO UPLOAD
+        print(f"📡 [UPLOAD] Tempo lettura: {upload_time:.2f}s | Dimensione: {size_mb:.2f} MB", file=sys.stderr, flush=True)
+
     except Exception as e:
          return JSONResponse(status_code=200, content={
              "error": "Errore upload", 
@@ -73,10 +87,21 @@ async def predict_endpoint(file: UploadFile = File(...)):
     # ==========================================
 
     try:
+        # ⏱️ MISURAZIONE AI
+        t2 = time.time()
+        print("🧠 [AI] Inizio elaborazione modello...", file=sys.stderr, flush=True)
+
         # Passiamo i byte che ABBIAMO GIÀ LETTO (img_bytes)
         # Non usare più 'await file.read()' qui sotto perché l'abbiamo già fatto sopra!
         result = predict_image_model(img_bytes)
         
+        t3 = time.time()
+        ai_time = t3 - t2
+        total_time = t3 - start_time
+
+        # STAMPA TEMPO AI
+        print(f"⚡ [DONE] Tempo AI: {ai_time:.2f}s | Tempo TOTALE server: {total_time:.2f}s", file=sys.stderr, flush=True)
+
         # 🚨 PROTEZIONE ANTI-CRASH 🚨
         if result is None:
             print("❌ ERRORE GRAVE: La funzione predict ha restituito None!", file=sys.stderr)

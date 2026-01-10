@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Camera, Upload, RefreshCw, CheckCircle, AlertTriangle, HelpCircle, XCircle } from 'lucide-react' // <--- 1. AGGIUNTO XCircle
+import { Camera, Upload, RefreshCw, CheckCircle, AlertTriangle, HelpCircle, XCircle } from 'lucide-react'
+import imageCompression from 'browser-image-compression'; // <--- 1. IMPORT NECESSARIO
 import './App.css'
 
 function App() {
@@ -25,11 +26,34 @@ function App() {
     }
 
     setLoading(true);
-    const formData = new FormData();
-    formData.append("file", selectedFile);
 
     try {
-      // Assicurati che l'URL sia corretto (se sei in locale usa localhost)
+      // ============================================================
+      // 2. FASE DI COMPRESSIONE (Nuova aggiunta)
+      // ============================================================
+      console.log(`Dimensione Originale: ${(selectedFile.size / 1024 / 1024).toFixed(2)} MB`);
+      
+      const options = {
+        maxSizeMB: 0.5,          // Comprime fino a circa 500KB (leggerissima!)
+        maxWidthOrHeight: 1024,  // Ridimensiona max 1024px (ottimo per AI)
+        useWebWorker: true,      // Usa thread separato per non bloccare la pagina
+      };
+
+      // Comprimiamo il file PRIMA di inviarlo
+      let fileToSend = selectedFile;
+      try {
+        fileToSend = await imageCompression(selectedFile, options);
+        console.log(`Dimensione Compressa: ${(fileToSend.size / 1024 / 1024).toFixed(2)} MB`);
+      } catch (compressionError) {
+        console.error("Errore compressione, invio file originale:", compressionError);
+      }
+      // ============================================================
+
+      const formData = new FormData();
+      formData.append("file", fileToSend); // Usiamo il file compresso
+
+      // ⚠️ IMPORTANTE: Qui c'è localhost: "http://127.0.0.1:8000/predict"
+      // Quando pubblichi su Render, cambia questo link con: "https://smarttrash-ai.onrender.com/predict"
       const response = await fetch("https://smarttrash-ai.onrender.com/predict", {
         method: "POST",
         body: formData,
@@ -41,19 +65,18 @@ function App() {
       const data = await response.json();
       console.log("Dati Backend:", data);
 
-      // --- 2. LOGICA DI GESTIONE ERRORE ---
-      // Se il Python ci ha mandato un errore (es. formato sbagliato)
+      // --- LOGICA DI GESTIONE ERRORE ---
       if (data.error) {
           setResult({
-              isError: true, // Flag speciale per dire "è un errore, non una predizione"
-              label: data.material, // "Formato Errato"
-              tip: data.tip,        // "Ricarica la pagina..."
-              color: "#ef4444"      // Rosso
+              isError: true,
+              label: data.material,
+              tip: data.tip,
+              color: "#ef4444"
           });
-          return; // Usciamo dalla funzione, non calcoliamo confidenza
+          return;
       }
 
-      // --- LOGICA DI SICUREZZA (Solo se non ci sono errori) ---
+      // --- LOGICA DI SICUREZZA ---
       const confidenceValue = data.confidence; 
       const isLowConfidence = confidenceValue < 0.60;
 
@@ -69,7 +92,6 @@ function App() {
 
     } catch (error) {
       console.error(error);
-      // Fallback per errori di rete veri (internet staccato, server spento)
       setResult({
           isError: true,
           label: "Errore Tecnico",
@@ -128,7 +150,8 @@ function App() {
                 )
               )}
             </div>
-            {loading && <div className="loader">🧠 Analisi in corso...</div>}
+            {/* Ho cambiato il testo del loader per farti capire che sta comprimendo */}
+            {loading && <div className="loader">🧠 Comprimo & Analizzo...</div>}
           </>
         )}
 
@@ -139,7 +162,6 @@ function App() {
           }}>
             
             <div className="result-header" style={{ backgroundColor: result.color }}>
-              {/* 3. LOGICA ICONE: Errore -> Incerto -> Sicuro */}
               {result.isError ? (
                  <XCircle size={32} color="white" />
               ) : result.isLowConfidence ? (
@@ -153,7 +175,7 @@ function App() {
             
             <div className="result-body">
               
-              {/* CASO A: ERRORE (File sbagliato o crash) */}
+              {/* CASO A: ERRORE */}
               {result.isError ? (
                   <div className="error-box">
                       <p style={{fontSize: '1.1rem', fontWeight: 'bold'}}>{result.tip}</p>
