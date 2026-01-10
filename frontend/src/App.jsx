@@ -50,7 +50,7 @@ function App() {
       // ============================================================
 
       const formData = new FormData();
-      formData.append("file", fileToSend); // Usiamo il file compresso
+      formData.append("file", fileToSend, selectedFile.name); // Usiamo il file compresso
 
       // ⚠️ IMPORTANTE: Qui c'è localhost: "http://127.0.0.1:8000/predict"
       // Quando pubblichi su Render, cambia questo link con: "https://smarttrash-ai.onrender.com/predict"
